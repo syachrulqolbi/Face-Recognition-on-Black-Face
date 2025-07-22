@@ -33,17 +33,19 @@ def _load_gallery():
             faces = faceapp.get(np.asarray(img))
             if not faces:
                 continue
+            print(f"  {img_path.name}: ok")
             embeddings.append(faces[0].embedding / np.linalg.norm(faces[0].embedding))
             names.append(person_dir.name)
     print(f"[Gallery] Loaded {len(embeddings)} faces for {len(set(names))} people.")
 
-def _identify(face_embedding, thresh=0.35):
+def _identify(face_embedding, thresh=0.6):
     """Return best-match name or 'Unknown'."""
     if not embeddings:
         return "Unknown"
     face_embedding = face_embedding / np.linalg.norm(face_embedding)
     sims = np.dot(embeddings, face_embedding)  # cosine similarity
     idx  = int(np.argmax(sims))
+    print(f"similarities: {sims.max():.3f}")
     return names[idx] if sims[idx] >= thresh else "Unknown"
 
 _load_gallery()
@@ -78,10 +80,12 @@ def process_image():
     file = request.files["file"]
     img  = Image.open(file.stream).convert("RGB")
     img  = ImageOps.exif_transpose(img)  # auto-rotate
+    print("aw 1")
 
     # 1️⃣  detect faces ---------------------------------------------------------
     boxes, _ = mtcnn.detect(img)
     preview_img = draw_boxes(img.copy(), boxes)
+    print("aw 2")
 
     # 2️⃣  crop first face (or blank) ------------------------------------------
     if boxes is not None and len(boxes):
@@ -89,12 +93,17 @@ def process_image():
         cropped = img.crop((x1, y1, x2, y2))
     else:
         cropped = Image.new("RGB", (1, 1), "black")
+    print("aw 3")
 
     # 3️⃣  ArcFace embedding + ID ---------------------------------------------
     identity = "Unknown"
+    print("aw 4")
     if cropped.size != (1, 1):
+        print("aw 5")
         faces = faceapp.get(np.asarray(cropped))
+        print(faces)
         if faces:
+            print("aw 6")
             identity = _identify(faces[0].embedding)
 
     return jsonify({

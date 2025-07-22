@@ -17,9 +17,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy app code
 COPY backend/ ./backend/
 COPY frontend/ ./frontend/
+COPY gallery/   ./gallery/   
 
 # Expose Flask port
 EXPOSE 8000
 
 # Start the app
-CMD ["python", "backend/app.py"]
+CMD ["python", "-u", "backend/app.py"]
