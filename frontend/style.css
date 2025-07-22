@@ -1,0 +1,48 @@
+body {
+  font-family: system-ui, sans-serif;
+  text-align: center;
+  background: #121212;
+  color: #fefefe;
+  margin: 0;
+  padding: 1rem;
+}
+
+video {
+  width: 320px;
+  height: 240px;
+  border: 2px solid #555;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+button,
+.upload {
+  margin: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  font-size: 1rem;
+  background: #00b0ff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.preview {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-top: 1.5rem;
+}
+
+.preview img {
+  max-width: 320px;
+  border: 2px solid #555;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+figcaption {
+  margin: 0.2rem auto;
+  font-weight: 600;
+}
