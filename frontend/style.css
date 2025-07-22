@@ -46,3 +46,9 @@ figcaption {
   margin: 0.2rem auto;
   font-weight: 600;
 }
+
+.id-label {
+  margin-top: .4rem;
+  font-weight: 700;
+  color: #00e676;
+}

@@ -1,12 +1,13 @@
 const API_URL = "http://localhost:8000/process";
 
 /* ── DOM elements ─────────────────────────────────────────── */
-const video       = document.getElementById("video");
-const captureBtn  = document.getElementById("captureBtn");
-const fileInput   = document.getElementById("fileInput");
-const origImg     = document.getElementById("origImg");
-const procImg     = document.getElementById("procImg");
-const cropImg     = document.getElementById("cropImg");
+const video      = document.getElementById("video");
+const captureBtn = document.getElementById("captureBtn");
+const fileInput  = document.getElementById("fileInput");
+const origImg    = document.getElementById("origImg");
+const procImg    = document.getElementById("procImg");
+const cropImg    = document.getElementById("cropImg");
+const idLabel    = document.getElementById("idLabel");
 
 /* ── 1. Webcam setup ──────────────────────────────────────── */
 navigator.mediaDevices
@@ -33,9 +34,10 @@ async function sendImage(blob) {
     const resp = await fetch(API_URL, { method: "POST", body: form });
     if (!resp.ok) throw new Error(resp.statusText);
 
-    const { processed, cropped } = await resp.json();
+    const { processed, cropped, identity } = await resp.json();
     procImg.src = processed;
     cropImg.src = cropped;
+    idLabel.textContent = identity ? `👤 ${identity}` : "";
 
   } catch (err) {
     alert("Server error: " + err.message);
@@ -45,10 +47,13 @@ async function sendImage(blob) {
 /* ── 3. Event listeners ───────────────────────────────────── */
 captureBtn.onclick = async () => {
   const blob = await frameToBlob();
-  sendImage(blob);
+  await sendImage(blob);  // Await for smoother UI update
 };
 
-fileInput.onchange = () => {
-  const file = fileInput.files[0];
-  if (file) sendImage(file);
-};
+fileInput.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  await sendImage(file);    // Await so UI stays in sync
+  fileInput.value = "";     // Allow re-uploading the same file
+});
