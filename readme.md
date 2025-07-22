@@ -18,7 +18,6 @@ This app lets you capture or upload a photo, detects the face with MTCNN, then r
 ### With Docker
 
 ```bash
-git clone <repo-url> && cd <repo>
 docker build -t faceapp .
 docker run -p 8000:8000 faceapp
 ```
