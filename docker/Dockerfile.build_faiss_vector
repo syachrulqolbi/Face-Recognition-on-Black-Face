@@ -1,0 +1,23 @@
+# docker/Dockerfile.build_faiss_vector
+FROM python:3.11-slim
+
+# Only what the wheels usually need
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 libgl1 ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install deps (your existing requirements.txt)
+COPY docker/requirements.txt /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy code
+COPY app /app/app
+
+# Model path (override via ARCFACE_ONNX if you want)
+ENV ARCFACE_ONNX=/app/models/glintr100.onnx
+RUN mkdir -p /app/models
+
+# Build vectors → artifacts in /workspace
+CMD ["python", "-m", "app.faiss_vector_build", "--out-faiss", "/workspace/gallery_flat.faiss", "--out-npy",   "/workspace/gallery_full.npy", "--out-txt",   "/workspace/gallery_ids.txt"]

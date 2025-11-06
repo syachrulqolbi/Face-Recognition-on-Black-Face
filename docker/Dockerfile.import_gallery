@@ -1,0 +1,15 @@
+# docker/Dockerfile.import_gallery
+# Import images in data/gallery/** into Postgres (nik + name + face)
+
+FROM python:3.11-slim
+
+# Only what we need
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# Postgres client lib
+RUN pip install --no-cache-dir psycopg2-binary==2.9.9
+
+WORKDIR /app
+COPY app/import_gallery_to_postgres.py /app/import_gallery_to_postgres.py

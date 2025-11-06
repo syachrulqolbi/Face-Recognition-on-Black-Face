@@ -1,0 +1,30 @@
+# Dockerfile.cpu
+FROM python:3.10-slim
+
+# System deps for opencv/mediapipe (lightweight)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libglib2.0-0 libsm6 libxext6 libxrender1 libgl1 \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /workspace
+
+# Copy requirements and install
+COPY docker/requirements.txt /workspace/requirements.txt
+RUN pip install --no-cache-dir -r /workspace/requirements.txt \
+    && pip install --no-cache-dir fastapi uvicorn[standard]
+
+# Copy project
+COPY . /workspace
+
+# Expose API port
+EXPOSE 8000
+
+# Default envs (can override at run)
+ENV PYTHONPATH=/workspace \
+    REPS_DIR=/workspace/reps \
+    OUT_FAISS=/workspace/gallery_flat.faiss \
+    OUT_NPY=/workspace/gallery_full.npy \
+    OUT_TXT=/workspace/gallery_ids.txt
+
+# Launch API
+CMD ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,0 +1,214 @@
+<# 
+.SYNOPSIS
+  End-to-end Docker workflow for FRBF:
+    1) Hard reset Docker (containers/images/volumes/networks/cache)
+    2) Create network + optional env-file args
+    3) Start Postgres (pgvector) and prep table/index
+    4) Build & run importers (DBF + gallery)
+    5) Build FAISS vectors
+    6) Build & run API
+    7) Quick test calls (single + batch)
+
+.NOTE
+  Steps 1–4 are destructive to local Docker state and Postgres volumes.
+  Review before running.
+#>
+
+# --- Shell hygiene ------------------------------------------------------------
+$ErrorActionPreference = "Stop"   # fail fast on errors
+
+# --- 0) Quick sanity: is Docker available? -----------------------------------
+if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
+  Write-Error "Docker CLI not found in PATH. Please install/start Docker Desktop and retry."
+}
+
+# ==============================================================================
+# 1) NUKE DOCKER STATE (DESTRUCTIVE)
+# ==============================================================================
+
+Write-Host "Stopping ALL running containers..." -ForegroundColor Yellow
+$running = docker ps -q
+if ($running) { docker stop $running }
+
+Write-Host "Removing ALL containers..." -ForegroundColor Yellow
+$all = docker ps -aq
+if ($all) { docker rm -f $all }
+
+Write-Host "Removing ALL images..." -ForegroundColor Yellow
+$images = docker images -q
+if ($images) { docker rmi -f $images }
+
+Write-Host "Removing ALL volumes (⚠️ data loss)..." -ForegroundColor Yellow
+$vols = docker volume ls -q
+if ($vols) { docker volume rm -f $vols }
+
+Write-Host "Pruning non-default networks..." -ForegroundColor Yellow
+docker network prune -f
+
+Write-Host "Clearing build cache..." -ForegroundColor Yellow
+docker builder prune -a -f
+
+
+# ==============================================================================
+# 2) NETWORK + ENV ARGS
+# ==============================================================================
+
+Write-Host "Creating network 'frbf-net' (ok if already exists)..." -ForegroundColor Cyan
+docker network create frbf-net | Out-Null
+
+# Optional --env-file flag if .env exists in CWD
+$EnvArgs = @()
+if (Test-Path .env) {
+  $EnvArgs += '--env-file'
+  $EnvArgs += '.env'
+}
+
+
+# ==============================================================================
+# 3) POSTGRES (pgvector) BOOTSTRAP
+# ==============================================================================
+
+Write-Host "Starting 'pgvec' (pgvector/pgvector:pg16)..." -ForegroundColor Cyan
+docker run -d --name pgvec `
+  --network frbf-net `
+  -e POSTGRES_USER=postgres `
+  -e POSTGRES_PASSWORD=12345678 `
+  -e POSTGRES_DB=mydb `
+  -p 5432:5432 pgvector/pgvector:pg16
+
+# If you want to watch logs until ready, uncomment:
+# docker logs -f pgvec   # Ctrl+C to stop streaming once it's accepting connections
+
+Write-Host "Creating fresh table 'public.faces' and index..." -ForegroundColor Cyan
+docker exec pgvec psql -U postgres -d mydb -c "DROP TABLE IF EXISTS public.faces CASCADE;"
+docker exec pgvec psql -U postgres -d mydb -c `
+"CREATE TABLE public.faces (
+  id   BIGSERIAL PRIMARY KEY,
+  nik  TEXT,
+  name TEXT,
+  face BYTEA
+);"
+docker exec pgvec psql -U postgres -d mydb -c "CREATE INDEX IF NOT EXISTS faces_nik_idx ON public.faces (nik);"
+
+
+# ==============================================================================
+# 4) IMPORTERS (DBF + GALLERY)
+# ==============================================================================
+
+Write-Host "Building DBF importer image 'frbf-import:backend'..." -ForegroundColor Green
+docker build -t frbf-import:backend -f docker/Dockerfile.import .
+
+Write-Host "Running DBF import -> Postgres..." -ForegroundColor Green
+docker run --rm --network frbf-net -v "${PWD}:/workspace" frbf-import:backend `
+  python /app/import_dbf_to_postgres.py `
+  --dbf "/workspace/data/FACES.dbf" `
+  --dsn "postgresql://postgres:12345678@pgvec:5432/mydb" `
+  --schema public --table faces `
+  --map nik=NIK face=FACE `
+  --create-table
+
+Write-Host "Building gallery importer image 'frbf-import:gallery'..." -ForegroundColor Green
+docker build -t frbf-import:gallery -f docker/Dockerfile.import_gallery .
+
+Write-Host "Importing gallery images -> Postgres..." -ForegroundColor Green
+docker run --rm --network frbf-net -v "${PWD}:/workspace" frbf-import:gallery `
+  python /app/import_gallery_to_postgres.py `
+  --root "/workspace/data/gallery" `
+  --dsn "postgresql://postgres:12345678@pgvec:5432/mydb" `
+  --schema public --table faces `
+  --create-table
+
+
+# ==============================================================================
+# 5) BUILD FAISS VECTORS
+# ==============================================================================
+
+Write-Host "Building vector builder image 'frbf-vector-build:backend'..." -ForegroundColor Green
+docker build -f docker/Dockerfile.build_faiss_vector -t frbf-vector-build:backend .
+
+Write-Host "Running FAISS vector build (outputs: .faiss / .npy / .txt)..." -ForegroundColor Green
+docker run --rm `
+  -v "${PWD}:/workspace" `
+  -w /workspace `
+  --network frbf-net `
+  --env-file .env `
+  -e PYTHONPATH=/workspace `
+  -e REPS_DIR=/workspace/reps `
+  frbf-vector-build:backend `
+  python -m app.faiss_vector_build `
+    --out-faiss /workspace/gallery_flat.faiss `
+    --out-npy   /workspace/gallery_full.npy `
+    --out-txt   /workspace/gallery_ids.txt
+
+
+# ==============================================================================
+# 6) (RE)START API — cleanly remove any old container named frbf-api
+# ==============================================================================
+
+$ErrorActionPreference = "Stop"
+$apiName  = "frbf-api"
+$apiImage = "frbf-api:backend"
+
+Write-Host "Stopping/removing anything bound to host port 8000..." -ForegroundColor Cyan
+$boundIds = docker ps -q --filter "publish=8000"
+if ($boundIds) {
+  $boundIds | ForEach-Object { docker rm -f $_ | Out-Null }
+}
+
+Write-Host "Removing existing container named '$apiName' (if present)..." -ForegroundColor Cyan
+$existing = docker ps -a --format "{{.Names}}" | Select-String -Quiet -Pattern ("^" + [regex]::Escape($apiName) + "$")
+if ($existing) {
+  docker rm -f $apiName | Out-Null
+} else {
+  Write-Host "No existing '$apiName' container found — nothing to remove." -ForegroundColor DarkGray
+}
+
+# Ensure network
+if (-not (docker network ls --format "{{.Name}}" | Select-String -Quiet -Pattern "^frbf-net$")) {
+  Write-Host "Creating docker network 'frbf-net'..." -ForegroundColor Yellow
+  docker network create frbf-net | Out-Null
+}
+
+Write-Host "Building API image '$apiImage'..." -ForegroundColor Green
+docker build -f docker/Dockerfile.backend -t $apiImage .
+
+Write-Host "Running API container '$apiName' on :8000..." -ForegroundColor Green
+docker run -d `
+  --name $apiName `
+  -v "${PWD}:/workspace" `
+  -w /workspace `
+  --network frbf-net `
+  -e DB_DSN="postgresql://postgres:12345678@pgvec:5432/mydb" `
+  -e REPS_DIR=/workspace/reps `
+  -e OUT_FAISS=/workspace/gallery_flat.faiss `
+  -e OUT_NPY=/workspace/gallery_full.npy `
+  -e OUT_TXT=/workspace/gallery_ids.txt `
+  -p 8000:8000 `
+  --restart unless-stopped `
+  $apiImage | Out-Null
+
+Write-Host "Waiting for API to become ready..." -ForegroundColor Yellow
+$ready = $false
+for ($i=0; $i -lt 30; $i++) {
+  try {
+    $resp = curl.exe -s -o NUL -w "%{http_code}" http://localhost:8000/openapi.json
+    if ($resp -eq "200") { $ready = $true; break }
+  } catch {}
+  Start-Sleep -Seconds 1
+}
+if (-not $ready) {
+  Write-Warning "API didn't report ready yet. Printing last 50 log lines..."
+  docker logs --tail 50 $apiName
+}
+
+# ==============================================================================
+# 7) QUICK TESTS (cURL)
+# ==============================================================================
+
+Write-Host "Test: single image predict (topk=5)..." -ForegroundColor Magenta
+curl.exe -s -F "file=@data\query\1.jpg" -F "topk=5" http://localhost:8000/predict
+
+Write-Host "`nTest: batch predict from folder (topk=5)..." -ForegroundColor Magenta
+curl.exe -s -F "folder=/workspace/data/query" -F "topk=5" http://localhost:8000/predict-batch
+
+Write-Host "`n✅ Done." -ForegroundColor Green

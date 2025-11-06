@@ -1,0 +1,28 @@
+# --- Core numeric stack ---
+numpy==1.26.4
+scipy==1.13.1
+pillow==10.4.0
+tqdm==4.66.4
+
+# --- Database / file I/O ---
+psycopg2-binary==2.9.9
+dbfread==2.0.7
+
+# --- Vector search (CPU only; FAISS wheels not published for Windows) ---
+faiss-cpu==1.8.0.post1; platform_system != "Windows"
+
+# --- Data / plotting (optional) ---
+pandas==2.2.2
+matplotlib==3.8.4
+
+# --- Computer vision ---
+opencv-python-headless==4.10.0.84
+mediapipe==0.10.14
+protobuf==4.25.3  # mediapipe prefers < 5
+
+# --- ONNX runtime (CPU) ---
+onnxruntime>=1.17
+# onnxruntime-gpu>=1.17  # <- uncomment if you use CUDA
+
+# --- Web / API helpers ---
+python-multipart>=0.0.7
