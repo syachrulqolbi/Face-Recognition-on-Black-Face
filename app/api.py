@@ -75,16 +75,37 @@ def _rgb_to_jpg_bytes(rgb: np.ndarray, quality: int = 90) -> bytes:
     return enc.tobytes() if ok else b""
 
 def _align(pre: Preprocessor, rgb: np.ndarray) -> Optional[np.ndarray]:
-    if hasattr(pre, "align_to_arcface"):
-        out = pre.align_to_arcface(rgb)
-        return out[0] if isinstance(out, tuple) else out
-    if hasattr(pre, "align"):
-        out = pre.align(rgb)
-        return out[0] if isinstance(out, tuple) else out
-    if hasattr(pre, "align_face"):
-        out = pre.align_face(rgb)
-        return out[0] if isinstance(out, tuple) else out
-    return None
+    """
+    Alignment helper that respects Preprocessor.cfg.USE_ALIGNMENT and SIZE.
+
+    - If USE_ALIGNMENT = True:
+        use pre.align_to_arcface(rgb).
+        Returns aligned face or None if alignment fails.
+    - If USE_ALIGNMENT = False:
+        just resize to cfg.SIZE (or 112x112), never returns None.
+    """
+    cfg = getattr(pre, "cfg", None)
+
+    # Defaults
+    use_alignment = True
+    target_w, target_h = 112, 112
+
+    if cfg is not None:
+        use_alignment = bool(getattr(cfg, "USE_ALIGNMENT", True))
+        if hasattr(cfg, "SIZE"):
+            target_w, target_h = cfg.SIZE
+
+    if not use_alignment:
+        # Alignment disabled: return resized RGB directly
+        return cv2.resize(rgb, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+    # Alignment enabled: main align_to_arcface path
+    out = pre.align_to_arcface(rgb)
+    if out is None:
+        # For the API, None means 422 / "face alignment failed"
+        return None
+    return out[0] if isinstance(out, tuple) else out
+
 
 def _ms(start: float, end: float) -> float:
     """Return milliseconds between two perf_counter readings."""

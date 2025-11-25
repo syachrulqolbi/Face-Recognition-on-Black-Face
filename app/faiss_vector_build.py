@@ -43,6 +43,7 @@ import argparse
 
 import onnxruntime as ort
 import numpy as np
+import cv2
 
 from app.config import SimpleConfig
 from app.utils import (
@@ -82,19 +83,38 @@ def _pick_label(row: tuple) -> Tuple[str, bytes]:
 
 def _align_arcface(pre: Preprocessor, rgb: np.ndarray) -> Optional[np.ndarray]:
     """
-    Call whatever alignment method the Preprocessor exposes.
-    Returns an aligned 112x112 RGB image or None if alignment fails.
+    Alignment helper that respects Preprocessor.cfg.USE_ALIGNMENT and SIZE.
+
+    - If USE_ALIGNMENT = True:
+        use pre.align_to_arcface(rgb).
+        Returns aligned face or None if alignment fails (no face).
+    - If USE_ALIGNMENT = False:
+        just resize to cfg.SIZE (or 112x112), never returns None.
     """
-    if hasattr(pre, "align_to_arcface"):
-        out = pre.align_to_arcface(rgb)
-        return out[0] if isinstance(out, tuple) else out
-    if hasattr(pre, "align"):
-        out = pre.align(rgb)
-        return out[0] if isinstance(out, tuple) else out
-    if hasattr(pre, "align_face"):
-        out = pre.align_face(rgb)
-        return out[0] if isinstance(out, tuple) else out
-    return None
+    cfg = getattr(pre, "cfg", None)
+
+    # Default values if cfg is missing/not wired
+    use_alignment = True
+    target_w, target_h = 112, 112
+
+    if cfg is not None:
+        # USE_ALIGNMENT may or may not exist; default True
+        use_alignment = bool(getattr(cfg, "USE_ALIGNMENT", True))
+        # SIZE may or may not exist; default 112x112
+        if hasattr(cfg, "SIZE"):
+            target_w, target_h = cfg.SIZE
+
+    if not use_alignment:
+        # Alignment disabled: just resize raw RGB
+        return cv2.resize(rgb, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+
+    # Alignment enabled: use align_to_arcface (your main method)
+    out = pre.align_to_arcface(rgb)
+    if out is None:
+        # No face / failed alignment → caller will skip this row
+        return None
+    return out[0] if isinstance(out, tuple) else out
+
 
 
 def build_from_db(

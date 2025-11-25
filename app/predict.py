@@ -48,19 +48,36 @@ from app.utils import iter_images, print_topk, imread_rgb, safe_label_dir
 # ------------- small helpers (kept as in your original) -------------
 def _align(pre: Preprocessor, rgb: np.ndarray) -> np.ndarray:
     """
-    Try alignment with whatever method the Preprocessor exposes.
-    Returns a 112x112 RGB image on success; raises if none found.
+    Align the face if USE_ALIGNMENT is True; otherwise just resize to cfg.SIZE.
+
+    - If alignment is enabled and fails -> raise RuntimeError (so caller can
+      handle/log it).
+    - If alignment is disabled -> we still return a 112x112 (or cfg.SIZE) RGB
+      image so the ArcFace embedder is happy.
     """
-    if hasattr(pre, "align_to_arcface"):
+    # Try to read USE_ALIGNMENT and SIZE from the Preprocessor's config
+    cfg = getattr(pre, "cfg", None)
+    use_alignment = True
+    if cfg is not None and hasattr(cfg, "USE_ALIGNMENT"):
+        use_alignment = bool(cfg.USE_ALIGNMENT)
+
+    # Determine target size for the model (default 112x112)
+    if cfg is not None and hasattr(cfg, "SIZE"):
+        target_w, target_h = cfg.SIZE
+    else:
+        target_w, target_h = 112, 112
+
+    if use_alignment:
         out = pre.align_to_arcface(rgb)
+        if out is None:
+            # Explicit failure when alignment is requested
+            raise RuntimeError("align_to_arcface() failed — no face detected/aligned")
         return out[0] if isinstance(out, tuple) else out
-    if hasattr(pre, "align"):
-        out = pre.align(rgb)
-        return out[0] if isinstance(out, tuple) else out
-    if hasattr(pre, "align_face"):
-        out = pre.align_face(rgb)
-        return out[0] if isinstance(out, tuple) else out
-    raise RuntimeError("Preprocessor lacks align_to_arcface()/align()/align_face()")
+
+    # If alignment is disabled, just resize the input image
+    resized = cv2.resize(rgb, (target_w, target_h), interpolation=cv2.INTER_LINEAR)
+    return resized
+
 
 
 def _apply_pipeline(pre: Preprocessor, aligned: np.ndarray) -> np.ndarray:
@@ -144,7 +161,7 @@ def predict_folder(
     Output:
         Displays matplotlib figures and prints top-K hits.
     """
-    qpaths = iter_images(cfg.QUERY_ROOT)
+    qpaths = iter_images(Path(cfg.QUERY_ROOT))
     if not qpaths:
         print(f"[warn] no query images under {cfg.QUERY_ROOT}")
         return
@@ -271,7 +288,7 @@ class BatchEvaluator:
         Notes:
             - Files without a parseable true label are counted as 'skipped'.
         """
-        qpaths = iter_images(self.cfg.QUERY_ROOT)
+        qpaths = iter_images(Path(self.cfg.QUERY_ROOT))
         K = int(topk or getattr(self.cfg, "TOPK", 5))
 
         rows: List[Dict[str, Any]] = []

@@ -39,12 +39,12 @@ def fetch_gallery_rows(cfg: SimpleConfig) -> List[Tuple[str, Optional[str], byte
 
     Output: List of (nik: str, name: Optional[str], face_bytes: bytes)
     """
-    _validate_ident(cfg.POSTGRES_SCHEMA, "schema")
-    _validate_ident(cfg.POSTGRES_TABLE, "table")
+    _validate_ident(cfg.DB_SCHEMA, "schema")
+    _validate_ident(cfg.DB_TABLE, "table")
 
     sql = (
         f"SELECT nik, name, face "
-        f"FROM {cfg.POSTGRES_SCHEMA}.{cfg.POSTGRES_TABLE} "
+        f"FROM {cfg.DB_SCHEMA}.{cfg.DB_TABLE} "
         f"WHERE face IS NOT NULL"
     )
 
@@ -68,16 +68,16 @@ def fetch_one_face_image_for_label(cfg: SimpleConfig, label: str) -> Optional[by
 
     Returns: image bytes (BYTEA) or None
     """
-    _validate_ident(cfg.POSTGRES_SCHEMA, "schema")
-    _validate_ident(cfg.POSTGRES_TABLE, "table")
+    _validate_ident(cfg.DB_SCHEMA, "schema")
+    _validate_ident(cfg.DB_TABLE, "table")
 
     sql_by_name = (
-        f"SELECT face FROM {cfg.POSTGRES_SCHEMA}.{cfg.POSTGRES_TABLE} "
+        f"SELECT face FROM {cfg.DB_SCHEMA}.{cfg.DB_TABLE} "
         f"WHERE name = %s AND face IS NOT NULL "
         f"LIMIT 1"
     )
     sql_by_nik = (
-        f"SELECT face FROM {cfg.POSTGRES_SCHEMA}.{cfg.POSTGRES_TABLE} "
+        f"SELECT face FROM {cfg.DB_SCHEMA}.{cfg.DB_TABLE} "
         f"WHERE nik = %s AND face IS NOT NULL "
         f"LIMIT 1"
     )
@@ -107,15 +107,15 @@ def fetch_nik_name_for_label(cfg: SimpleConfig, label: str) -> Tuple[Optional[st
     Return (nik, name) for a label.
     We try name=label first, then nik=label. Returns (None, None) if not found.
     """
-    _validate_ident(cfg.POSTGRES_SCHEMA, "schema")
-    _validate_ident(cfg.POSTGRES_TABLE, "table")
+    _validate_ident(cfg.DB_SCHEMA, "schema")
+    _validate_ident(cfg.DB_TABLE, "table")
 
     sql_name = (
-        f"SELECT nik, name FROM {cfg.POSTGRES_SCHEMA}.{cfg.POSTGRES_TABLE} "
+        f"SELECT nik, name FROM {cfg.DB_SCHEMA}.{cfg.DB_TABLE} "
         f"WHERE name = %s LIMIT 1"
     )
     sql_nik = (
-        f"SELECT nik, name FROM {cfg.POSTGRES_SCHEMA}.{cfg.POSTGRES_TABLE} "
+        f"SELECT nik, name FROM {cfg.DB_SCHEMA}.{cfg.DB_TABLE} "
         f"WHERE nik = %s LIMIT 1"
     )
 
